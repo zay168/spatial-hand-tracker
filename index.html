@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spatial Hand Interaction | Vision Pro Style</title>
+    <meta name="description"
+        content="Apple Vision Pro style hand tracking with MediaPipe - grab, move, and interact with 3D objects">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&family=SF+Mono:wght@400;500&family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">👁️</span>
+                <span class="logo-text">Spatial<span class="accent">Hand</span></span>
+            </div>
+            <div class="status-bar">
+                <div class="status-item" id="fpsCounter">
+                    <span class="status-label">FPS</span>
+                    <span class="status-value">--</span>
+                </div>
+                <div class="status-item" id="handsDetected">
+                    <span class="status-label">HANDS</span>
+                    <span class="status-value">0</span>
+                </div>
+                <div class="status-item" id="gestureStatus">
+                    <span class="status-label">GESTURE</span>
+                    <span class="status-value">--</span>
+                </div>
+                <div class="status-item highlight" id="objectsInBox">
+                    <span class="status-label">IN BOX</span>
+                    <span class="status-value">0</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Video Container -->
+            <div class="video-container" id="videoContainer">
+                <video id="webcam" autoplay playsinline></video>
+                <canvas id="skeletonCanvas"></canvas>
+
+                <!-- Interactive Objects Layer -->
+                <div class="objects-layer" id="objectsLayer">
+                    <!-- Drop Zone Box -->
+                    <div class="drop-zone" id="dropZone">
+                        <div class="drop-zone-inner">
+                            <div class="drop-zone-icon">📦</div>
+                            <span class="drop-zone-text">Drop Zone</span>
+                        </div>
+                        <div class="drop-zone-glow"></div>
+                    </div>
+
+                    <!-- Interactive Objects -->
+                    <div class="spatial-object" id="obj-cube" data-type="cube"
+                        style="--obj-color: #00f5ff; left: 15%; top: 30%;">
+                        <div class="object-3d cube">
+                            <div class="face front"></div>
+                            <div class="face back"></div>
+                            <div class="face left"></div>
+                            <div class="face right"></div>
+                            <div class="face top"></div>
+                            <div class="face bottom"></div>
+                        </div>
+                        <div class="object-shadow"></div>
+                        <div class="object-glow"></div>
+                    </div>
+
+                    <div class="spatial-object" id="obj-sphere" data-type="sphere"
+                        style="--obj-color: #ff00f5; left: 25%; top: 60%;">
+                        <div class="object-3d sphere"></div>
+                        <div class="object-shadow"></div>
+                        <div class="object-glow"></div>
+                    </div>
+
+                    <div class="spatial-object" id="obj-diamond" data-type="diamond"
+                        style="--obj-color: #39ff14; left: 10%; top: 70%;">
+                        <div class="object-3d diamond">
+                            <div class="diamond-top"></div>
+                            <div class="diamond-bottom"></div>
+                        </div>
+                        <div class="object-shadow"></div>
+                        <div class="object-glow"></div>
+                    </div>
+
+                    <div class="spatial-object" id="obj-torus" data-type="torus"
+                        style="--obj-color: #ff6b00; left: 20%; top: 45%;">
+                        <div class="object-3d torus"></div>
+                        <div class="object-shadow"></div>
+                        <div class="object-glow"></div>
+                    </div>
+
+                    <div class="spatial-object" id="obj-pyramid" data-type="pyramid"
+                        style="--obj-color: #bf00ff; left: 8%; top: 50%;">
+                        <div class="object-3d pyramid">
+                            <div class="pyramid-face f1"></div>
+                            <div class="pyramid-face f2"></div>
+                            <div class="pyramid-face f3"></div>
+                            <div class="pyramid-face f4"></div>
+                            <div class="pyramid-base"></div>
+                        </div>
+                        <div class="object-shadow"></div>
+                        <div class="object-glow"></div>
+                    </div>
+
+                    <!-- Hand Cursor -->
+                    <div class="hand-cursor" id="handCursor">
+                        <div class="cursor-ring"></div>
+                        <div class="cursor-dot"></div>
+                        <div class="cursor-pinch-indicator"></div>
+                    </div>
+                </div>
+
+                <!-- Loading Overlay -->
+                <div class="loading-overlay" id="loadingOverlay">
+                    <div class="loader">
+                        <div class="loader-ring"></div>
+                        <div class="loader-ring"></div>
+                        <div class="loader-ring"></div>
+                    </div>
+                    <p class="loading-text">Initializing Spatial Computing...</p>
+                    <p class="loading-subtext" id="loadingStatus">Loading MediaPipe model</p>
+                </div>
+
+                <!-- Permission Overlay -->
+                <div class="permission-overlay" id="permissionOverlay">
+                    <div class="permission-content">
+                        <div class="permission-icon">�️‍🗨️</div>
+                        <h2>Spatial Hand Tracking</h2>
+                        <p>Experience Vision Pro-style interactions with your hands</p>
+                        <ul class="feature-list">
+                            <li>🤏 Pinch to grab objects</li>
+                            <li>✋ Move to reposition</li>
+                            <li>📦 Drop into the box</li>
+                        </ul>
+                        <button id="startButton" class="btn-primary">
+                            <span>Enable Camera</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2">
+                                <path d="M5 12h14M12 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Gesture Feedback -->
+                <div class="gesture-feedback" id="gestureFeedback">
+                    <span class="gesture-icon"></span>
+                    <span class="gesture-name"></span>
+                </div>
+
+                <!-- Object Grabbed Feedback -->
+                <div class="grab-feedback" id="grabFeedback">
+                    <span class="grab-text">Object Grabbed</span>
+                </div>
+
+                <!-- Drop Success Animation -->
+                <div class="drop-success" id="dropSuccess">
+                    <span class="success-icon">✓</span>
+                    <span class="success-text">Dropped!</span>
+                </div>
+            </div>
+
+            <!-- Side Panel -->
+            <aside class="side-panel">
+                <!-- Instructions -->
+                <div class="panel-section instructions">
+                    <h3 class="section-title">How to Interact</h3>
+                    <div class="instruction-list">
+                        <div class="instruction-item">
+                            <div class="instruction-icon">🤏</div>
+                            <div class="instruction-text">
+                                <strong>Pinch</strong>
+                                <span>Touch index + thumb to grab</span>
+                            </div>
+                        </div>
+                        <div class="instruction-item">
+                            <div class="instruction-icon">✋</div>
+                            <div class="instruction-text">
+                                <strong>Move</strong>
+                                <span>Keep pinching and move hand</span>
+                            </div>
+                        </div>
+                        <div class="instruction-item">
+                            <div class="instruction-icon">👐</div>
+                            <div class="instruction-text">
+                                <strong>Release</strong>
+                                <span>Open fingers to drop</span>
+                            </div>
+                        </div>
+                        <div class="instruction-item">
+                            <div class="instruction-icon">📦</div>
+                            <div class="instruction-text">
+                                <strong>Box Drop</strong>
+                                <span>Release over the box to store</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Objects Status -->
+                <div class="panel-section">
+                    <h3 class="section-title">Objects</h3>
+                    <div class="objects-list" id="objectsList">
+                        <div class="object-status" data-for="obj-cube">
+                            <div class="obj-preview cube-preview"></div>
+                            <span class="obj-name">Cube</span>
+                            <span class="obj-state">Free</span>
+                        </div>
+                        <div class="object-status" data-for="obj-sphere">
+                            <div class="obj-preview sphere-preview"></div>
+                            <span class="obj-name">Sphere</span>
+                            <span class="obj-state">Free</span>
+                        </div>
+                        <div class="object-status" data-for="obj-diamond">
+                            <div class="obj-preview diamond-preview"></div>
+                            <span class="obj-name">Diamond</span>
+                            <span class="obj-state">Free</span>
+                        </div>
+                        <div class="object-status" data-for="obj-torus">
+                            <div class="obj-preview torus-preview"></div>
+                            <span class="obj-name">Torus</span>
+                            <span class="obj-state">Free</span>
+                        </div>
+                        <div class="object-status" data-for="obj-pyramid">
+                            <div class="obj-preview pyramid-preview"></div>
+                            <span class="obj-name">Pyramid</span>
+                            <span class="obj-state">Free</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reset Button -->
+                <div class="panel-section">
+                    <button class="btn-secondary" id="resetButton">
+                        <span>🔄</span>
+                        <span>Reset All Objects</span>
+                    </button>
+                </div>
+
+                <!-- Hand Data -->
+                <div class="panel-section">
+                    <h3 class="section-title">Tracking Data</h3>
+                    <div class="data-grid" id="handDataGrid">
+                        <div class="data-item">
+                            <span class="data-label">Cursor X</span>
+                            <span class="data-value" id="cursorX">--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="data-label">Cursor Y</span>
+                            <span class="data-value" id="cursorY">--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="data-label">Pinch</span>
+                            <span class="data-value" id="pinchValue">--</span>
+                        </div>
+                        <div class="data-item">
+                            <span class="data-label">Grabbed</span>
+                            <span class="data-value" id="grabbedObj">--</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module" src="app.js"></script>
+</body>
+
+</html>
