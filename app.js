@@ -3,17 +3,20 @@
  * Apple Vision Pro inspired interactions with MediaPipe
  */
 
-import { HandLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest';
+import { HandLandmarker, FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest';
 
 // ============================================
 // CONFIGURATION
 // ============================================
 const CONFIG = {
     mediapipe: {
-        numHands: 1,
+        numHands: 2,
         minDetectionConfidence: 0.7,
         minPresenceConfidence: 0.7,
-        minTrackingConfidence: 0.7
+        minTrackingConfidence: 0.7,
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.5,
+        minFacePresenceConfidence: 0.5
     },
 
     interaction: {
@@ -125,6 +128,7 @@ class GestureStabilizer {
 // ============================================
 const state = {
     handLandmarker: null,
+    faceLandmarker: null,
     isRunning: false,
 
     fps: 0,
@@ -137,14 +141,34 @@ const state = {
     canvasW: 0,
     canvasH: 0,
 
+    // Filters for each hand (support 2 hands)
+    handFilters: [
+        { filterX: new OneEuroFilter(1.0, 0.007), filterY: new OneEuroFilter(1.0, 0.007), pinchStabilizer: new GestureStabilizer(CONFIG.interaction.gestureConfirmFrames) },
+        { filterX: new OneEuroFilter(1.0, 0.007), filterY: new OneEuroFilter(1.0, 0.007), pinchStabilizer: new GestureStabilizer(CONFIG.interaction.gestureConfirmFrames) }
+    ],
+
+    // Legacy single hand support (using first hand)
     filterX: new OneEuroFilter(1.0, 0.007),
     filterY: new OneEuroFilter(1.0, 0.007),
     pinchStabilizer: new GestureStabilizer(CONFIG.interaction.gestureConfirmFrames),
 
     cursor: { x: 0, y: 0 },
+    cursors: [{ x: 0, y: 0 }, { x: 0, y: 0 }], // Multi-cursor support
     isPinching: false,
     pinchDistance: 0,
     handSize: 0.15,
+    handsData: [], // Store data for all detected hands
+
+    // Middle finger detection (doigt d'honneur)
+    middleFingerDetected: false,
+    middleFingerHand: null,
+    middleFingerZoom: 0, // 0 to 1 zoom progress
+    middleFingerStabilizer: new GestureStabilizer(5),
+
+    // Face tracking
+    faceDetected: false,
+    faceLandmarks: null,
+    faceBox: null,
 
     objects: [],
     grabbedObject: null,
@@ -186,7 +210,18 @@ const el = {
     holdingData: $('holdingData'),
 
     notifGrabbed: $('notifGrabbed'),
-    notifDropped: $('notifDropped')
+    notifDropped: $('notifDropped'),
+    notifMiddleFinger: $('notifMiddleFinger'),
+    
+    // Hand pointers for multi-hand
+    handPointer2: $('handPointer2'),
+    
+    // Middle finger overlay
+    middleFingerOverlay: $('middleFingerOverlay'),
+    middleFingerText: $('middleFingerText'),
+    
+    // Face indicator
+    faceIndicator: $('faceIndicator')
 };
 
 // ============================================
@@ -195,7 +230,7 @@ const el = {
 async function init() {
     try {
         el.loadingScreen.classList.remove('hidden');
-        el.loadingText.textContent = 'Loading AI model...';
+        el.loadingText.textContent = 'Loading AI models...';
 
         const vision = await FilesetResolver.forVisionTasks(
             'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
@@ -213,6 +248,19 @@ async function init() {
             minHandDetectionConfidence: CONFIG.mediapipe.minDetectionConfidence,
             minHandPresenceConfidence: CONFIG.mediapipe.minPresenceConfidence,
             minTrackingConfidence: CONFIG.mediapipe.minTrackingConfidence
+        });
+
+        el.loadingText.textContent = 'Initializing face tracker...';
+
+        state.faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+                delegate: 'GPU'
+            },
+            runningMode: 'VIDEO',
+            numFaces: CONFIG.mediapipe.numFaces,
+            minFaceDetectionConfidence: CONFIG.mediapipe.minFaceDetectionConfidence,
+            minFacePresenceConfidence: CONFIG.mediapipe.minFacePresenceConfidence
         });
 
         setupCanvas();
@@ -328,29 +376,67 @@ function processFrame(timestamp) {
         state.lastFpsTime = timestamp;
     }
 
-    // Detection
-    const results = state.handLandmarker.detectForVideo(el.webcam, timestamp);
+    // Hand Detection
+    const handResults = state.handLandmarker.detectForVideo(el.webcam, timestamp);
+    
+    // Face Detection
+    const faceResults = state.faceLandmarker.detectForVideo(el.webcam, timestamp);
 
     // Clear
     state.ctx.clearRect(0, 0, state.canvasW, state.canvasH);
 
-    const numHands = results.landmarks?.length || 0;
+    const numHands = handResults.landmarks?.length || 0;
+    const numFaces = faceResults.faceLandmarks?.length || 0;
+    
+    // Process faces
+    state.faceDetected = numFaces > 0;
+    if (numFaces > 0) {
+        state.faceLandmarks = faceResults.faceLandmarks[0];
+        renderFace(state.faceLandmarks);
+    }
+    updateFaceIndicator();
+
+    // Reset middle finger detection
+    let middleFingerFound = false;
+    let middleFingerHandLandmarks = null;
 
     if (numHands > 0) {
-        const landmarks = results.landmarks[0];
-
-        // Render skeleton (mirrored)
+        // Process all detected hands
         state.ctx.save();
         state.ctx.translate(state.canvasW, 0);
         state.ctx.scale(-1, 1);
-        renderSkeleton(landmarks);
+        
+        for (let i = 0; i < numHands; i++) {
+            const landmarks = handResults.landmarks[i];
+            const handedness = handResults.handednesses?.[i]?.[0]?.categoryName || 'Unknown';
+            
+            // Render skeleton for each hand with different colors
+            renderSkeleton(landmarks, i);
+            
+            // Check for middle finger gesture on each hand
+            if (detectMiddleFinger(landmarks)) {
+                middleFingerFound = true;
+                middleFingerHandLandmarks = landmarks;
+            }
+        }
+        
         state.ctx.restore();
 
-        // Process interaction
+        // Process interaction with first hand for object grabbing
+        const landmarks = handResults.landmarks[0];
         processInteraction(landmarks, timestamp);
+        
+        // Update second hand pointer if present
+        if (numHands > 1 && el.handPointer2) {
+            const landmarks2 = handResults.landmarks[1];
+            updateSecondPointer(landmarks2, timestamp);
+        } else if (el.handPointer2) {
+            el.handPointer2.classList.remove('visible');
+        }
 
     } else {
         el.handPointer.classList.remove('visible', 'pinching', 'near-object');
+        if (el.handPointer2) el.handPointer2.classList.remove('visible');
 
         if (state.grabbedObject) {
             releaseObject();
@@ -359,9 +445,25 @@ function processFrame(timestamp) {
         resetFilters();
     }
 
+    // Handle middle finger detection with stabilization
+    const stableMiddleFinger = state.middleFingerStabilizer.update(middleFingerFound);
+    
+    if (stableMiddleFinger && middleFingerHandLandmarks) {
+        state.middleFingerDetected = true;
+        state.middleFingerHand = middleFingerHandLandmarks;
+        // Smooth zoom in
+        state.middleFingerZoom = Math.min(1, state.middleFingerZoom + 0.08);
+    } else {
+        state.middleFingerDetected = false;
+        // Smooth zoom out
+        state.middleFingerZoom = Math.max(0, state.middleFingerZoom - 0.05);
+    }
+    
+    updateMiddleFingerOverlay();
+
     // UI update (throttled)
     if (timestamp - state.lastUiUpdate >= CONFIG.rendering.uiUpdateInterval) {
-        updateUI(numHands);
+        updateUI(numHands, numFaces);
         state.lastUiUpdate = timestamp;
     }
 
@@ -377,11 +479,17 @@ function resetFilters() {
 // ============================================
 // SKELETON RENDERING
 // ============================================
-function renderSkeleton(landmarks) {
+function renderSkeleton(landmarks, handIndex = 0) {
     const ctx = state.ctx;
     const w = state.canvasW;
     const h = state.canvasH;
-    const colors = CONFIG.rendering.skeleton.colors;
+    
+    // Different color schemes for different hands
+    const colorSchemes = [
+        ['#ff9500', '#5ac8fa', '#bf5af2', '#ff375f', '#30d158', '#ffffff'],
+        ['#00ff88', '#ff6b9d', '#ffbe0b', '#8338ec', '#3a86ff', '#e0e0e0']
+    ];
+    const colors = colorSchemes[handIndex % 2];
 
     // Bones by color
     for (let c = 0; c < colors.length; c++) {
@@ -409,6 +517,193 @@ function renderSkeleton(landmarks) {
         ctx.arc(x, y, CONFIG.rendering.skeleton.jointRadius, 0, Math.PI * 2);
         ctx.fill();
     }
+}
+
+// ============================================
+// FACE RENDERING
+// ============================================
+function renderFace(landmarks) {
+    const ctx = state.ctx;
+    const w = state.canvasW;
+    const h = state.canvasH;
+    
+    ctx.save();
+    ctx.translate(state.canvasW, 0);
+    ctx.scale(-1, 1);
+    
+    // Draw face mesh outline (simplified - just key points)
+    const keyPoints = [10, 152, 234, 454, 21, 251, 33, 263, 61, 291, 199]; // Key face landmarks
+    
+    ctx.strokeStyle = 'rgba(90, 200, 250, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+    
+    // Draw oval around face
+    if (landmarks.length > 300) {
+        // Get face boundary points for oval
+        const faceOvalPoints = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+        
+        ctx.beginPath();
+        for (let i = 0; i < faceOvalPoints.length; i++) {
+            const point = landmarks[faceOvalPoints[i]];
+            const x = point.x * w;
+            const y = point.y * h;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+    }
+    
+    ctx.setLineDash([]);
+    
+    // Draw eyes
+    const leftEye = [33, 160, 158, 133, 153, 144];
+    const rightEye = [362, 385, 387, 263, 373, 380];
+    
+    ctx.strokeStyle = 'rgba(90, 200, 250, 0.6)';
+    ctx.lineWidth = 1.5;
+    
+    [leftEye, rightEye].forEach(eye => {
+        ctx.beginPath();
+        eye.forEach((idx, i) => {
+            if (idx < landmarks.length) {
+                const point = landmarks[idx];
+                if (i === 0) ctx.moveTo(point.x * w, point.y * h);
+                else ctx.lineTo(point.x * w, point.y * h);
+            }
+        });
+        ctx.closePath();
+        ctx.stroke();
+    });
+    
+    ctx.restore();
+}
+
+// ============================================
+// MIDDLE FINGER DETECTION
+// ============================================
+function detectMiddleFinger(landmarks) {
+    // Landmark indices:
+    // Thumb: 1-4, Index: 5-8, Middle: 9-12, Ring: 13-16, Pinky: 17-20
+    // Tips: 4, 8, 12, 16, 20
+    // MCP (knuckles): 1, 5, 9, 13, 17
+    
+    const wrist = landmarks[0];
+    const thumbTip = landmarks[4];
+    const indexTip = landmarks[8];
+    const middleTip = landmarks[12];
+    const ringTip = landmarks[16];
+    const pinkyTip = landmarks[20];
+    
+    const thumbMcp = landmarks[2];
+    const indexMcp = landmarks[5];
+    const middleMcp = landmarks[9];
+    const ringMcp = landmarks[13];
+    const pinkyMcp = landmarks[17];
+    
+    // Check if middle finger is extended (tip is far from wrist relative to MCP)
+    const middleExtended = distance2D(middleTip, wrist) > distance2D(middleMcp, wrist) * 1.5;
+    
+    // Check if other fingers are curled (tips close to palm)
+    const thumbCurled = distance2D(thumbTip, wrist) < distance2D(thumbMcp, wrist) * 1.3;
+    const indexCurled = distance2D(indexTip, wrist) < distance2D(indexMcp, wrist) * 1.4;
+    const ringCurled = distance2D(ringTip, wrist) < distance2D(ringMcp, wrist) * 1.4;
+    const pinkyCurled = distance2D(pinkyTip, wrist) < distance2D(pinkyMcp, wrist) * 1.4;
+    
+    // Middle finger gesture: middle extended, others curled
+    const isMiddleFingerGesture = middleExtended && indexCurled && ringCurled && pinkyCurled;
+    
+    return isMiddleFingerGesture;
+}
+
+function distance2D(p1, p2) {
+    return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
+}
+
+// ============================================
+// MIDDLE FINGER OVERLAY
+// ============================================
+function updateMiddleFingerOverlay() {
+    if (!el.middleFingerOverlay) return;
+    
+    if (state.middleFingerZoom > 0.01) {
+        el.middleFingerOverlay.classList.add('active');
+        
+        // Calculate zoom center based on middle finger hand position
+        if (state.middleFingerHand) {
+            const middleTip = state.middleFingerHand[12];
+            const wrist = state.middleFingerHand[0];
+            
+            // Center point between middle tip and wrist (mirrored)
+            const centerX = (1 - (middleTip.x + wrist.x) / 2) * 100;
+            const centerY = ((middleTip.y + wrist.y) / 2) * 100;
+            
+            // Apply zoom effect with easing
+            const zoom = 1 + (state.middleFingerZoom * 0.8); // Max 1.8x zoom
+            const opacity = state.middleFingerZoom;
+            
+            el.middleFingerOverlay.style.setProperty('--zoom', zoom);
+            el.middleFingerOverlay.style.setProperty('--center-x', `${centerX}%`);
+            el.middleFingerOverlay.style.setProperty('--center-y', `${centerY}%`);
+            el.middleFingerOverlay.style.setProperty('--opacity', opacity);
+        }
+        
+        // Show text
+        if (el.middleFingerText) {
+            el.middleFingerText.style.opacity = state.middleFingerZoom;
+            el.middleFingerText.style.transform = `translate(-50%, -50%) scale(${0.8 + state.middleFingerZoom * 0.4})`;
+        }
+    } else {
+        el.middleFingerOverlay.classList.remove('active');
+        if (el.middleFingerText) {
+            el.middleFingerText.style.opacity = 0;
+        }
+    }
+}
+
+// ============================================
+// FACE INDICATOR
+// ============================================
+function updateFaceIndicator() {
+    if (!el.faceIndicator) return;
+    
+    if (state.faceDetected) {
+        el.faceIndicator.classList.add('detected');
+    } else {
+        el.faceIndicator.classList.remove('detected');
+    }
+}
+
+// ============================================
+// SECOND HAND POINTER
+// ============================================
+function updateSecondPointer(landmarks, timestamp) {
+    if (!el.handPointer2) return;
+    
+    const indexTip = landmarks[8];
+    const filters = state.handFilters[1];
+    
+    const rawX = (1 - indexTip.x) * 100;
+    const rawY = indexTip.y * 100;
+    
+    const x = filters.filterX.filter(rawX, timestamp);
+    const y = filters.filterY.filter(rawY, timestamp);
+    
+    state.cursors[1] = { x, y };
+    
+    el.handPointer2.classList.add('visible');
+    el.handPointer2.style.left = `${x}%`;
+    el.handPointer2.style.top = `${y}%`;
+    
+    // Check pinch for second hand
+    const thumbTip = landmarks[4];
+    const dx = thumbTip.x - indexTip.x;
+    const dy = thumbTip.y - indexTip.y;
+    const pinchDist = Math.sqrt(dx * dx + dy * dy);
+    const isPinching = pinchDist < CONFIG.interaction.pinchThreshold;
+    
+    el.handPointer2.classList.toggle('pinching', isPinching);
 }
 
 // ============================================
@@ -623,15 +918,24 @@ function resetObjects() {
 // ============================================
 // UI
 // ============================================
-function updateUI(handCount) {
+function updateUI(handCount, faceCount = 0) {
     // Pills
     el.fpsPill.querySelector('.pill-value').textContent = state.fps;
     el.handsPill.querySelector('.pill-value').textContent = handCount;
 
-    const gestureText = state.grabbedObject ? 'Holding' :
+    let gestureText = state.middleFingerDetected ? '🖕 Detected!' :
+        state.grabbedObject ? 'Holding' :
         state.isPinching ? 'Pinching' :
-            state.nearestObject ? 'Hover' : 'Ready';
+        state.nearestObject ? 'Hover' : 'Ready';
+    
     el.gesturePill.querySelector('.pill-value').textContent = gestureText;
+    
+    // Add visual feedback for middle finger
+    if (state.middleFingerDetected) {
+        el.gesturePill.classList.add('warning');
+    } else {
+        el.gesturePill.classList.remove('warning');
+    }
 
     // Data
     el.cursorData.textContent = `${Math.round(state.cursor.x)}, ${Math.round(state.cursor.y)}`;

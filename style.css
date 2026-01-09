@@ -1357,6 +1357,150 @@ body {
 }
 
 /* === Responsive === */
+/* === Second Hand Pointer === */
+.hand-pointer-2 .pointer-outer {
+    border-color: rgba(0, 255, 136, 0.6);
+}
+
+.hand-pointer-2 .pointer-inner {
+    background: #00ff88;
+    box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+}
+
+.hand-pointer-2.pinching .pointer-outer {
+    border-color: #00ff88;
+    background: rgba(0, 255, 136, 0.2);
+    box-shadow: 0 0 24px rgba(0, 255, 136, 0.5);
+}
+
+.hand-pointer-2.pinching .pointer-inner {
+    background: #00ff88;
+}
+
+/* === Face Indicator === */
+#faceIndicator {
+    transition: all var(--duration-base) var(--ease-out);
+}
+
+#faceIndicator .face-icon {
+    filter: grayscale(1);
+    opacity: 0.5;
+    transition: all var(--duration-base) var(--ease-out);
+}
+
+#faceIndicator.detected {
+    background: rgba(48, 209, 88, 0.15);
+    border-color: rgba(48, 209, 88, 0.3);
+}
+
+#faceIndicator.detected .face-icon {
+    filter: grayscale(0);
+    opacity: 1;
+}
+
+/* === Middle Finger Overlay === */
+.middle-finger-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 500;
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+    --zoom: 1;
+    --center-x: 50%;
+    --center-y: 50%;
+    --opacity: 0;
+}
+
+.middle-finger-overlay.active {
+    opacity: 1;
+}
+
+.middle-finger-vignette {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+        circle at var(--center-x) var(--center-y),
+        transparent 0%,
+        transparent 20%,
+        rgba(255, 55, 95, 0.3) 50%,
+        rgba(255, 55, 95, 0.6) 80%,
+        rgba(0, 0, 0, 0.9) 100%
+    );
+    transition: all 0.15s ease-out;
+}
+
+.middle-finger-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    opacity: 0;
+    transition: all 0.2s ease-out;
+    z-index: 510;
+}
+
+.mf-emoji {
+    font-size: 64px;
+    animation: mfShake 0.5s ease-in-out infinite;
+    filter: drop-shadow(0 0 20px rgba(255, 55, 95, 0.8));
+}
+
+.mf-message {
+    font-family: var(--font-display);
+    font-size: 36px;
+    font-weight: 700;
+    color: #ff375f;
+    text-shadow: 
+        0 0 20px rgba(255, 55, 95, 0.8),
+        0 0 40px rgba(255, 55, 95, 0.5),
+        0 2px 4px rgba(0, 0, 0, 0.5);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    animation: mfPulse 0.8s ease-in-out infinite;
+}
+
+@keyframes mfShake {
+    0%, 100% { transform: rotate(-5deg); }
+    50% { transform: rotate(5deg); }
+}
+
+@keyframes mfPulse {
+    0%, 100% { 
+        transform: scale(1);
+        opacity: 1;
+    }
+    50% { 
+        transform: scale(1.05);
+        opacity: 0.9;
+    }
+}
+
+/* === Warning State for Gesture Pill === */
+.pill.warning {
+    background: rgba(255, 55, 95, 0.2) !important;
+    border-color: rgba(255, 55, 95, 0.5) !important;
+    animation: pillWarning 0.5s ease-in-out infinite;
+}
+
+.pill.warning .pill-value {
+    color: #ff375f !important;
+}
+
+@keyframes pillWarning {
+    0%, 100% { 
+        box-shadow: 0 0 0 0 rgba(255, 55, 95, 0.4);
+    }
+    50% { 
+        box-shadow: 0 0 20px 4px rgba(255, 55, 95, 0.6);
+    }
+}
+
+/* === Responsive === */
 @media (max-width: 900px) {
     .control-panel {
         display: none;
@@ -1365,5 +1509,13 @@ body {
     .status-pills .pill:nth-child(1),
     .status-pills .pill:nth-child(2) {
         display: none;
+    }
+    
+    .mf-message {
+        font-size: 24px;
+    }
+    
+    .mf-emoji {
+        font-size: 48px;
     }
 }

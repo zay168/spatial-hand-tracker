@@ -48,6 +48,10 @@
                         <span class="pill-value">0</span>
                         <span class="pill-label">Hands</span>
                     </div>
+                    <div class="pill" id="faceIndicator">
+                        <span class="pill-value face-icon">👤</span>
+                        <span class="pill-label">Face</span>
+                    </div>
                     <div class="pill active" id="gesturePill">
                         <span class="pill-value">Ready</span>
                         <span class="pill-label">Status</span>
@@ -65,8 +69,15 @@
 
                 <!-- Spatial Objects Container -->
                 <div class="spatial-objects" id="spatialObjects">
-                    <!-- Hand Pointer -->
+                    <!-- Hand Pointer (Main) -->
                     <div class="hand-pointer" id="handPointer">
+                        <div class="pointer-outer"></div>
+                        <div class="pointer-inner"></div>
+                        <div class="pointer-pulse"></div>
+                    </div>
+                    
+                    <!-- Hand Pointer (Second) -->
+                    <div class="hand-pointer hand-pointer-2" id="handPointer2">
                         <div class="pointer-outer"></div>
                         <div class="pointer-inner"></div>
                         <div class="pointer-pulse"></div>
@@ -120,6 +131,15 @@
                             <span class="drop-count" id="dropCount">0 items</span>
                         </div>
                         <div class="drop-zone-glow"></div>
+                    </div>
+                    
+                    <!-- Middle Finger Overlay -->
+                    <div class="middle-finger-overlay" id="middleFingerOverlay">
+                        <div class="middle-finger-vignette"></div>
+                        <div class="middle-finger-text" id="middleFingerText">
+                            <span class="mf-emoji">😮</span>
+                            <span class="mf-message">Tu fais quoi ?</span>
+                        </div>
                     </div>
                 </div>
 
