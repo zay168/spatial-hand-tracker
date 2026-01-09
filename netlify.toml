@@ -5,7 +5,7 @@
   # No build command needed - static site
   publish = "."
 
-# Headers for proper MIME types and security
+# Headers for proper MIME types
 [[headers]]
   for = "/*"
   [headers.values]
@@ -13,31 +13,18 @@
     X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    
-    # Required for SharedArrayBuffer (MediaPipe WASM)
-    Cross-Origin-Opener-Policy = "same-origin"
-    Cross-Origin-Embedder-Policy = "require-corp"
 
 [[headers]]
   for = "/*.js"
   [headers.values]
     Content-Type = "application/javascript; charset=utf-8"
-    Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
   for = "/*.css"
   [headers.values]
     Content-Type = "text/css; charset=utf-8"
-    Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
   for = "/index.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
-
-# Redirects for SPA (if needed in future)
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-  conditions = {Role = ["admin"]}
