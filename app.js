@@ -743,7 +743,7 @@ const FACE_MESH_TRIANGLES = [
 
 
 // ============================================
-// FACE RENDERING (Optimized Triangle Mesh)
+// FACE RENDERING - 3D SCANNER MESH EFFECT
 // ============================================
 function renderFace(landmarks) {
     const ctx = state.ctx;
@@ -758,18 +758,23 @@ function renderFace(landmarks) {
 
     // Pre-calculate positions for optimization
     const positions = new Float32Array(landmarks.length * 2);
+    let minY = Infinity, maxY = -Infinity;
+
     for (let i = 0; i < landmarks.length; i++) {
         positions[i * 2] = landmarks[i].x * w;
         positions[i * 2 + 1] = landmarks[i].y * h;
+        minY = Math.min(minY, positions[i * 2 + 1]);
+        maxY = Math.max(maxY, positions[i * 2 + 1]);
     }
 
-    // Draw triangle mesh
-    ctx.lineWidth = 0.5;
-    ctx.strokeStyle = 'rgba(90, 200, 250, 0.25)';
-    ctx.fillStyle = 'rgba(90, 200, 250, 0.03)';
+    // Animated scan line position (loops every 2 seconds)
+    const scanProgress = (Date.now() % 2000) / 2000;
+    const scanY = minY + (maxY - minY) * scanProgress;
+    const scanThickness = (maxY - minY) * 0.15;
 
-    // Batch draw triangles
-    ctx.beginPath();
+    // === DRAW MESH GRID (VISIBLE WHITE LINES) ===
+
+    // Draw all triangles as wireframe
     for (let i = 0; i < FACE_MESH_TRIANGLES.length; i++) {
         const [a, b, c] = FACE_MESH_TRIANGLES[i];
 
@@ -780,15 +785,65 @@ function renderFace(landmarks) {
         const bx = positions[b * 2], by = positions[b * 2 + 1];
         const cx = positions[c * 2], cy = positions[c * 2 + 1];
 
+        // Calculate triangle center for scan effect
+        const centerY = (ay + by + cy) / 3;
+        const distFromScan = Math.abs(centerY - scanY);
+
+        // Brightness based on distance from scan line
+        let alpha = 0.3;
+        let lineWidth = 0.6;
+
+        if (distFromScan < scanThickness) {
+            const intensity = 1 - (distFromScan / scanThickness);
+            alpha = 0.3 + intensity * 0.7;
+            lineWidth = 0.6 + intensity * 1.5;
+        }
+
+        ctx.beginPath();
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = lineWidth;
         ctx.moveTo(ax, ay);
         ctx.lineTo(bx, by);
         ctx.lineTo(cx, cy);
-        ctx.lineTo(ax, ay);
+        ctx.closePath();
+        ctx.stroke();
     }
-    ctx.stroke();
-    ctx.fill();
 
-    // Draw enhanced features
+    // === SCAN LINE GLOW ===
+    const scanGradient = ctx.createLinearGradient(0, scanY - scanThickness, 0, scanY + scanThickness);
+    scanGradient.addColorStop(0, 'rgba(90, 200, 250, 0)');
+    scanGradient.addColorStop(0.4, 'rgba(90, 200, 250, 0.3)');
+    scanGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.8)');
+    scanGradient.addColorStop(0.6, 'rgba(90, 200, 250, 0.3)');
+    scanGradient.addColorStop(1, 'rgba(90, 200, 250, 0)');
+
+    // Draw scan line across face bounding box
+    const faceMinX = Math.min(...Array.from({ length: landmarks.length }, (_, i) => positions[i * 2]));
+    const faceMaxX = Math.max(...Array.from({ length: landmarks.length }, (_, i) => positions[i * 2]));
+
+    ctx.fillStyle = scanGradient;
+    ctx.fillRect(faceMinX - 20, scanY - scanThickness, faceMaxX - faceMinX + 40, scanThickness * 2);
+
+    // === KEY LANDMARK POINTS (vertices glow) ===
+    const keyPoints = [10, 152, 234, 454, 33, 263, 61, 291, 1, 168]; // Forehead, chin, temples, eyes, lips, nose
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.shadowColor = 'rgba(90, 200, 250, 0.8)';
+    ctx.shadowBlur = 6;
+
+    for (const idx of keyPoints) {
+        if (idx < landmarks.length) {
+            const x = positions[idx * 2];
+            const y = positions[idx * 2 + 1];
+
+            ctx.beginPath();
+            ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.shadowBlur = 0;
+
+    // Draw enhanced features (eyes, lips, etc.)
     drawFaceFeatures(ctx, positions, w, h, landmarks);
 
     ctx.restore();
